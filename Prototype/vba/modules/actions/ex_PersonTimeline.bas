@@ -75,7 +75,7 @@ Public Sub m_ShowPersonTimeline(ByVal fio As String)
     Dim rowIndex As Long
     rowIndex = 1
     If hasOutputStyle Then
-        rowIndex = rowIndex + outputStyle.OutputTopOffsetRows
+        rowIndex = ex_SheetStylesXmlProvider.m_GetOutputViewStartRow(ThisWorkbook)
     End If
 
     Dim headerRows As Collection
@@ -167,6 +167,7 @@ EH:
     Dim errNumber As Long
     Dim errSource As String
     Dim errDescription As String
+    Dim errOutputStyle As t_OutputSheetStyle
 
     errNumber = Err.Number
     errSource = Err.Source
@@ -183,7 +184,14 @@ EH:
         Set wsOut = mp_CreateOrClearSheet("g_PersonTimeline")
         ex_Messaging.m_ApplyDarkSheetBase wsOut
     End If
-    ex_Messaging.m_RenderErrorBanner wsOut, errDescription, errSource, errNumber, "ERROR: Timeline generation failed"
+    On Error Resume Next
+    If ex_SheetStylesXmlProvider.m_InitializeStyles(ThisWorkbook) Then
+        If ex_SheetStylesXmlProvider.m_GetOutputSheetStyle(errOutputStyle, ThisWorkbook) Then
+            ex_OutputPanel.m_RenderForSheet wsOut, errOutputStyle
+        End If
+    End If
+    On Error GoTo 0
+    ex_Messaging.m_RenderErrorBanner wsOut, errDescription, errSource, errNumber, "ERROR: Timeline generation failed", ex_SheetStylesXmlProvider.m_GetOutputErrorBannerRangeAddress(ThisWorkbook)
 
 End Sub
 

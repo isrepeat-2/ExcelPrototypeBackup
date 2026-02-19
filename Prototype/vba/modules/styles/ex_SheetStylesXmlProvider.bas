@@ -9,6 +9,19 @@ Private Const OUTPUT_STYLE_LABEL As String = "output sheet style"
 Public Const LAYER_BASE As String = "base"
 Public Const LAYER_OUTPUT As String = "output"
 
+Public Type t_ControlPanelButtonStyle
+    Caption As String
+    MacroName As String
+End Type
+
+Public Type t_ControlPanelFieldStyle
+    Label As String
+    InputConfigKey As String
+    InputName As String
+    ButtonCount As Long
+    Buttons() As t_ControlPanelButtonStyle
+End Type
+
 Public Type t_BaseSheetStyle
     PriorityLayer As Long
 
@@ -28,6 +41,9 @@ End Type
 Public Type t_OutputSheetStyle
     PriorityLayer As Long
     OutputTopOffsetRows As Long
+    HeaderRows As Long
+    ViewStartRow As Long
+    ErrorBannerColumns As Long
 
     FontName As String
     FontSize As Double
@@ -55,16 +71,18 @@ Public Type t_OutputSheetStyle
     StatusRemovedBackColor As Long
 
     HasControlPanel As Boolean
+    PanelStartColumn As Long
     PanelMinStartColumn As Long
     PanelOffsetColumns As Long
     PanelWidthColumns As Long
     PanelHeightRows As Long
     PanelTopRow As Long
+    PanelLabelColumns As Long
+    PanelValueColumns As Long
+    PanelFieldRowSpan As Long
+    PanelFieldSpacingRows As Long
+    PanelColumnWidth As Double
     PanelTitle As String
-    PanelInputLabel As String
-    PanelInputConfigKey As String
-    PanelButtonCaption As String
-    PanelButtonMacro As String
     PanelBackColor As Long
     PanelBorderColor As Long
     PanelTitleColor As Long
@@ -74,6 +92,8 @@ Public Type t_OutputSheetStyle
     PanelButtonBackColor As Long
     PanelButtonTextColor As Long
     PanelButtonBorderColor As Long
+    PanelFieldCount As Long
+    PanelFields() As t_ControlPanelFieldStyle
 End Type
 
 Private g_IsInitialized As Boolean
@@ -120,6 +140,39 @@ Public Function m_GetOutputSheetStyle(ByRef style As t_OutputSheetStyle, Optiona
     If Not g_HasOutputStyle Then Exit Function
     style = g_OutputStyle
     m_GetOutputSheetStyle = True
+End Function
+
+Public Function m_GetOutputViewStartRow(Optional ByVal wb As Workbook) As Long
+    Dim style As t_OutputSheetStyle
+
+    If Not m_GetOutputSheetStyle(style, wb) Then
+        m_GetOutputViewStartRow = 1
+        Exit Function
+    End If
+
+    If style.ViewStartRow > 0 Then
+        m_GetOutputViewStartRow = style.ViewStartRow
+    Else
+        m_GetOutputViewStartRow = 1 + style.OutputTopOffsetRows
+    End If
+    If m_GetOutputViewStartRow < 1 Then m_GetOutputViewStartRow = 1
+End Function
+
+Public Function m_GetOutputErrorBannerRangeAddress(Optional ByVal wb As Workbook) As String
+    Dim style As t_OutputSheetStyle
+    Dim startRow As Long
+    Dim endCol As Long
+
+    If Not m_GetOutputSheetStyle(style, wb) Then
+        m_GetOutputErrorBannerRangeAddress = "A1:H4"
+        Exit Function
+    End If
+
+    startRow = m_GetOutputViewStartRow(wb)
+    endCol = style.ErrorBannerColumns
+    If endCol < 1 Then endCol = 8
+
+    m_GetOutputErrorBannerRangeAddress = "A" & CStr(startRow) & ":" & mp_ColumnLetter(endCol) & CStr(startRow + 3)
 End Function
 
 Public Function m_HasOutputSheetStyle(Optional ByVal wb As Workbook) As Boolean
@@ -389,6 +442,25 @@ Private Function mp_TryLoadOutputSheetStyleFromDom(ByVal doc As Object, ByRef st
         MsgBox "Invalid value for output sheet style attribute 'outputSheetStyle@outputTopOffsetRows': must be >= 0.", vbExclamation
         Exit Function
     End If
+    If Not mp_ReadOptionalAttrLong(rootNode, "headerRows", style.HeaderRows, 4, "outputSheetStyle@headerRows") Then Exit Function
+    If Not mp_ReadOptionalAttrLong(rootNode, "viewStartRow", style.ViewStartRow, 6, "outputSheetStyle@viewStartRow") Then Exit Function
+    If Not mp_ReadOptionalAttrLong(rootNode, "errorBannerColumns", style.ErrorBannerColumns, 8, "outputSheetStyle@errorBannerColumns") Then Exit Function
+    If style.HeaderRows < 1 Then
+        MsgBox "Invalid value for output sheet style attribute 'outputSheetStyle@headerRows': must be >= 1.", vbExclamation
+        Exit Function
+    End If
+    If style.ViewStartRow < 1 Then
+        MsgBox "Invalid value for output sheet style attribute 'outputSheetStyle@viewStartRow': must be >= 1.", vbExclamation
+        Exit Function
+    End If
+    If style.ErrorBannerColumns < 1 Then
+        MsgBox "Invalid value for output sheet style attribute 'outputSheetStyle@errorBannerColumns': must be >= 1.", vbExclamation
+        Exit Function
+    End If
+    If style.ViewStartRow <= style.HeaderRows Then
+        MsgBox "Invalid layout in output sheet style: viewStartRow must be greater than headerRows.", vbExclamation
+        Exit Function
+    End If
 
     style.FontName = ex_XmlCore.m_ReadRequiredAttrText(nodeFont, "name", "font@name", OUTPUT_STYLE_LABEL)
     If Len(style.FontName) = 0 Then Exit Function
@@ -441,17 +513,23 @@ Private Function mp_TryLoadOutputSheetStyleFromDom(ByVal doc As Object, ByRef st
     If Not nodeControlPanel Is Nothing Then
         style.HasControlPanel = True
         style.PanelTitle = mp_ReadOptionalAttrText(nodeControlPanel, "title", "Quick Search")
-        style.PanelInputLabel = mp_ReadOptionalAttrText(nodeControlPanel, "inputLabel", "Key")
-        style.PanelInputConfigKey = mp_ReadOptionalAttrText(nodeControlPanel, "inputConfigKey", "Context.PersonValue")
-        style.PanelButtonCaption = mp_ReadOptionalAttrText(nodeControlPanel, "buttonCaption", "Search")
-        style.PanelButtonMacro = mp_ReadOptionalAttrText(nodeControlPanel, "buttonMacro", "ex_UIActions.m_OutputPanelStartSearch")
 
+        If Not mp_ReadOptionalAttrLong(nodeControlPanel, "startColumn", style.PanelStartColumn, 0, "controlPanel@startColumn") Then Exit Function
         If Not mp_ReadOptionalAttrLong(nodeControlPanel, "minStartColumn", style.PanelMinStartColumn, 8, "controlPanel@minStartColumn") Then Exit Function
         If Not mp_ReadOptionalAttrLong(nodeControlPanel, "offsetColumns", style.PanelOffsetColumns, 2, "controlPanel@offsetColumns") Then Exit Function
         If Not mp_ReadOptionalAttrLong(nodeControlPanel, "widthColumns", style.PanelWidthColumns, 6, "controlPanel@widthColumns") Then Exit Function
         If Not mp_ReadOptionalAttrLong(nodeControlPanel, "heightRows", style.PanelHeightRows, 3, "controlPanel@heightRows") Then Exit Function
         If Not mp_ReadOptionalAttrLong(nodeControlPanel, "topRow", style.PanelTopRow, 1, "controlPanel@topRow") Then Exit Function
+        If Not mp_ReadOptionalAttrLong(nodeControlPanel, "labelColumns", style.PanelLabelColumns, 1, "controlPanel@labelColumns") Then Exit Function
+        If Not mp_ReadOptionalAttrLong(nodeControlPanel, "valueColumns", style.PanelValueColumns, 2, "controlPanel@valueColumns") Then Exit Function
+        If Not mp_ReadOptionalAttrLong(nodeControlPanel, "fieldRowSpan", style.PanelFieldRowSpan, 2, "controlPanel@fieldRowSpan") Then Exit Function
+        If Not mp_ReadOptionalAttrLong(nodeControlPanel, "fieldSpacingRows", style.PanelFieldSpacingRows, 0, "controlPanel@fieldSpacingRows") Then Exit Function
+        If Not mp_ReadOptionalAttrDouble(nodeControlPanel, "panelColumnWidth", style.PanelColumnWidth, 12#, "controlPanel@panelColumnWidth") Then Exit Function
 
+        If style.PanelStartColumn < 0 Then
+            MsgBox "Invalid value for output sheet style attribute 'controlPanel@startColumn': must be >= 0.", vbExclamation
+            Exit Function
+        End If
         If style.PanelMinStartColumn < 1 Then
             MsgBox "Invalid value for output sheet style attribute 'controlPanel@minStartColumn': must be >= 1.", vbExclamation
             Exit Function
@@ -472,6 +550,26 @@ Private Function mp_TryLoadOutputSheetStyleFromDom(ByVal doc As Object, ByRef st
             MsgBox "Invalid value for output sheet style attribute 'controlPanel@topRow': must be >= 1.", vbExclamation
             Exit Function
         End If
+        If style.PanelLabelColumns < 1 Then
+            MsgBox "Invalid value for output sheet style attribute 'controlPanel@labelColumns': must be >= 1.", vbExclamation
+            Exit Function
+        End If
+        If style.PanelValueColumns < 1 Then
+            MsgBox "Invalid value for output sheet style attribute 'controlPanel@valueColumns': must be >= 1.", vbExclamation
+            Exit Function
+        End If
+        If style.PanelFieldRowSpan < 1 Then
+            MsgBox "Invalid value for output sheet style attribute 'controlPanel@fieldRowSpan': must be >= 1.", vbExclamation
+            Exit Function
+        End If
+        If style.PanelFieldSpacingRows < 0 Then
+            MsgBox "Invalid value for output sheet style attribute 'controlPanel@fieldSpacingRows': must be >= 0.", vbExclamation
+            Exit Function
+        End If
+        If style.PanelColumnWidth <= 0 Then
+            MsgBox "Invalid value for output sheet style attribute 'controlPanel@panelColumnWidth': must be > 0.", vbExclamation
+            Exit Function
+        End If
 
         If Not mp_ReadOptionalAttrHexColor(nodeControlPanel, "panelBackColor", style.PanelBackColor, RGB(30, 30, 30), "controlPanel@panelBackColor") Then Exit Function
         If Not mp_ReadOptionalAttrHexColor(nodeControlPanel, "panelBorderColor", style.PanelBorderColor, RGB(80, 80, 80), "controlPanel@panelBorderColor") Then Exit Function
@@ -482,9 +580,80 @@ Private Function mp_TryLoadOutputSheetStyleFromDom(ByVal doc As Object, ByRef st
         If Not mp_ReadOptionalAttrHexColor(nodeControlPanel, "buttonBackColor", style.PanelButtonBackColor, RGB(31, 94, 156), "controlPanel@buttonBackColor") Then Exit Function
         If Not mp_ReadOptionalAttrHexColor(nodeControlPanel, "buttonTextColor", style.PanelButtonTextColor, RGB(255, 255, 255), "controlPanel@buttonTextColor") Then Exit Function
         If Not mp_ReadOptionalAttrHexColor(nodeControlPanel, "buttonBorderColor", style.PanelButtonBorderColor, RGB(22, 63, 105), "controlPanel@buttonBorderColor") Then Exit Function
+
+        If Not mp_LoadControlPanelFields(nodeControlPanel, style) Then Exit Function
     End If
 
     mp_TryLoadOutputSheetStyleFromDom = True
+End Function
+
+Private Function mp_LoadControlPanelFields(ByVal nodeControlPanel As Object, ByRef style As t_OutputSheetStyle) As Boolean
+    Dim fieldNodes As Object
+    Dim fieldNode As Object
+    Dim i As Long
+
+    Set fieldNodes = nodeControlPanel.selectNodes("p:fields/p:field")
+    If fieldNodes Is Nothing Or fieldNodes.Length = 0 Then
+        Set fieldNodes = nodeControlPanel.selectNodes("p:field")
+    End If
+
+    If fieldNodes Is Nothing Or fieldNodes.Length = 0 Then
+        MsgBox "Invalid controlPanel layout: at least one field is required in 'controlPanel/fields/field'.", vbExclamation
+        Exit Function
+    End If
+
+    style.PanelFieldCount = fieldNodes.Length
+    ReDim style.PanelFields(1 To style.PanelFieldCount)
+
+    For i = 1 To style.PanelFieldCount
+        Set fieldNode = fieldNodes.Item(i - 1)
+        If Not mp_LoadControlPanelFieldNode(fieldNode, style.PanelFields(i), i) Then Exit Function
+    Next i
+
+    mp_LoadControlPanelFields = True
+End Function
+
+Private Function mp_LoadControlPanelFieldNode( _
+    ByVal fieldNode As Object, _
+    ByRef fieldStyle As t_ControlPanelFieldStyle, _
+    ByVal fieldIndex As Long _
+) As Boolean
+    Dim buttonNodes As Object
+    Dim buttonNode As Object
+    Dim i As Long
+
+    fieldStyle.Label = mp_ReadOptionalAttrText(fieldNode, "label", vbNullString)
+    fieldStyle.InputConfigKey = mp_ReadOptionalAttrText(fieldNode, "inputConfigKey", vbNullString)
+    fieldStyle.InputName = mp_ReadOptionalAttrText(fieldNode, "inputName", fieldStyle.InputConfigKey)
+    If Len(Trim$(fieldStyle.Label)) = 0 Then fieldStyle.Label = "Key"
+    If Len(Trim$(fieldStyle.InputConfigKey)) = 0 Then fieldStyle.InputConfigKey = "Context.PersonValue"
+    If Len(Trim$(fieldStyle.InputName)) = 0 Then
+        fieldStyle.InputName = "Field" & CStr(fieldIndex)
+    End If
+
+    Set buttonNodes = fieldNode.selectNodes("p:button")
+    If buttonNodes Is Nothing Or buttonNodes.Length = 0 Then
+        MsgBox "Invalid control panel field: at least one 'button' node is required.", vbExclamation
+        Exit Function
+    End If
+
+    fieldStyle.ButtonCount = buttonNodes.Length
+    If fieldStyle.ButtonCount <= 0 Then
+        MsgBox "Invalid control panel field: at least one button is required.", vbExclamation
+        Exit Function
+    End If
+    ReDim fieldStyle.Buttons(1 To fieldStyle.ButtonCount)
+
+    For i = 1 To fieldStyle.ButtonCount
+        Set buttonNode = buttonNodes.Item(i - 1)
+        fieldStyle.Buttons(i).Caption = mp_ReadOptionalAttrText(buttonNode, "caption", "Action " & CStr(i))
+        fieldStyle.Buttons(i).MacroName = mp_ReadOptionalAttrText(buttonNode, "macro", "ex_UIActions.m_OutputPanelStartSearch_OnClick")
+        If Len(Trim$(fieldStyle.Buttons(i).MacroName)) = 0 Then
+            fieldStyle.Buttons(i).MacroName = "ex_UIActions.m_OutputPanelStartSearch_OnClick"
+        End If
+    Next i
+
+    mp_LoadControlPanelFieldNode = True
 End Function
 
 Private Function mp_ReadOptionalAttrText(ByVal node As Object, ByVal attrName As String, ByVal defaultValue As String) As String
@@ -510,6 +679,24 @@ Private Function mp_ReadOptionalAttrLong(ByVal node As Object, ByVal attrName As
     End If
 
     mp_ReadOptionalAttrLong = True
+End Function
+
+Private Function mp_ReadOptionalAttrDouble(ByVal node As Object, ByVal attrName As String, ByRef outValue As Double, ByVal defaultValue As Double, ByVal fieldName As String) As Boolean
+    Dim textValue As String
+
+    textValue = Trim$(ex_XmlCore.m_NodeAttrText(node, attrName))
+    If Len(textValue) = 0 Then
+        outValue = defaultValue
+        mp_ReadOptionalAttrDouble = True
+        Exit Function
+    End If
+
+    If Not ex_XmlCore.m_TryParseDouble(textValue, outValue, True) Then
+        MsgBox "Invalid numeric output sheet style attribute '" & fieldName & "': " & textValue, vbExclamation
+        Exit Function
+    End If
+
+    mp_ReadOptionalAttrDouble = True
 End Function
 
 Private Function mp_ReadOptionalAttrHexColor(ByVal node As Object, ByVal attrName As String, ByRef outValue As Long, ByVal defaultValue As Long, ByVal fieldName As String) As Boolean
@@ -603,4 +790,18 @@ Private Function mp_FindColumnIndexInRow(ByVal ws As Worksheet, ByVal headerRow 
             Exit Function
         End If
     Next c
+End Function
+
+Private Function mp_ColumnLetter(ByVal colIndex As Long) As String
+    Dim n As Long
+    Dim part As Long
+
+    n = colIndex
+    If n < 1 Then n = 1
+
+    Do While n > 0
+        part = (n - 1) Mod 26
+        mp_ColumnLetter = Chr$(65 + part) & mp_ColumnLetter
+        n = (n - 1) \ 26
+    Loop
 End Function

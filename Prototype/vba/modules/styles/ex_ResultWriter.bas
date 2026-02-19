@@ -32,7 +32,7 @@ Public Sub m_WriteTableToResultSheet(ByVal tableData As Variant)
     colCount = UBound(tableData, 2)
     startRow = 1
     If hasOutputStyle Then
-        startRow = startRow + outputStyle.OutputTopOffsetRows
+        startRow = ex_SheetStylesXmlProvider.m_GetOutputViewStartRow(ThisWorkbook)
     End If
     fullRowCount = startRow + dataRows - 1
 
