@@ -27,6 +27,7 @@ End Type
 
 Public Type t_OutputSheetStyle
     PriorityLayer As Long
+    OutputTopOffsetRows As Long
 
     FontName As String
     FontSize As Double
@@ -52,6 +53,27 @@ Public Type t_OutputSheetStyle
     StatusAddedBackColor As Long
     StatusChangedBackColor As Long
     StatusRemovedBackColor As Long
+
+    HasControlPanel As Boolean
+    PanelMinStartColumn As Long
+    PanelOffsetColumns As Long
+    PanelWidthColumns As Long
+    PanelHeightRows As Long
+    PanelTopRow As Long
+    PanelTitle As String
+    PanelInputLabel As String
+    PanelInputConfigKey As String
+    PanelButtonCaption As String
+    PanelButtonMacro As String
+    PanelBackColor As Long
+    PanelBorderColor As Long
+    PanelTitleColor As Long
+    PanelLabelColor As Long
+    PanelInputBackColor As Long
+    PanelInputFontColor As Long
+    PanelButtonBackColor As Long
+    PanelButtonTextColor As Long
+    PanelButtonBorderColor As Long
 End Type
 
 Private g_IsInitialized As Boolean
@@ -221,20 +243,24 @@ Public Sub m_ApplyBaseLayer(ByVal ws As Worksheet, ByVal rowCount As Long, ByVal
     End With
 End Sub
 
-Public Sub m_ApplyStatusLayer(ByVal ws As Worksheet, ByVal rowCount As Long, ByVal colCount As Long, ByRef style As t_OutputSheetStyle)
+Public Sub m_ApplyStatusLayer(ByVal ws As Worksheet, ByVal headerRow As Long, ByVal rowCount As Long, ByVal colCount As Long, ByRef style As t_OutputSheetStyle)
     Dim statusCol As Long
     Dim r As Long
     Dim statusValue As String
     Dim rowRange As Range
+    Dim lastRow As Long
 
     If ws Is Nothing Then Exit Sub
     If Not style.HasStatusStyle Then Exit Sub
     If rowCount < 2 Or colCount < 1 Then Exit Sub
+    If headerRow < 1 Then Exit Sub
 
-    statusCol = mp_FindColumnIndex(ws, colCount, style.StatusColumnName)
+    lastRow = headerRow + rowCount - 1
+
+    statusCol = mp_FindColumnIndexInRow(ws, headerRow, colCount, style.StatusColumnName)
     If statusCol = 0 Then Exit Sub
 
-    For r = 2 To rowCount
+    For r = headerRow + 1 To lastRow
         statusValue = Trim$(LCase$(CStr(ws.Cells(r, statusCol).Value)))
         Set rowRange = ws.Range(ws.Cells(r, 1), ws.Cells(r, colCount))
         rowRange.Interior.Pattern = xlSolid
@@ -336,6 +362,7 @@ Private Function mp_TryLoadOutputSheetStyleFromDom(ByVal doc As Object, ByRef st
     Dim nodeSection As Object
     Dim nodeAlignment As Object
     Dim nodeStatus As Object
+    Dim nodeControlPanel As Object
     Dim sectionTitleColumnsText As String
 
     Set rootNode = doc.selectSingleNode("/p:SheetStyles/p:outputSheetStyle")
@@ -357,6 +384,11 @@ Private Function mp_TryLoadOutputSheetStyleFromDom(ByVal doc As Object, ByRef st
     End If
 
     If Not ex_XmlCore.m_ReadRequiredAttrLong(rootNode, "priority", style.PriorityLayer, "outputSheetStyle@priority", OUTPUT_STYLE_LABEL) Then Exit Function
+    If Not mp_ReadOptionalAttrLong(rootNode, "outputTopOffsetRows", style.OutputTopOffsetRows, 4, "outputSheetStyle@outputTopOffsetRows") Then Exit Function
+    If style.OutputTopOffsetRows < 0 Then
+        MsgBox "Invalid value for output sheet style attribute 'outputSheetStyle@outputTopOffsetRows': must be >= 0.", vbExclamation
+        Exit Function
+    End If
 
     style.FontName = ex_XmlCore.m_ReadRequiredAttrText(nodeFont, "name", "font@name", OUTPUT_STYLE_LABEL)
     If Len(style.FontName) = 0 Then Exit Function
@@ -404,7 +436,98 @@ Private Function mp_TryLoadOutputSheetStyleFromDom(ByVal doc As Object, ByRef st
         If Not ex_XmlCore.m_ReadRequiredAttrHexColor(nodeStatus, "removedBackColor", style.StatusRemovedBackColor, "status@removedBackColor", OUTPUT_STYLE_LABEL) Then Exit Function
     End If
 
+    style.HasControlPanel = False
+    Set nodeControlPanel = rootNode.selectSingleNode("p:controlPanel")
+    If Not nodeControlPanel Is Nothing Then
+        style.HasControlPanel = True
+        style.PanelTitle = mp_ReadOptionalAttrText(nodeControlPanel, "title", "Quick Search")
+        style.PanelInputLabel = mp_ReadOptionalAttrText(nodeControlPanel, "inputLabel", "Key")
+        style.PanelInputConfigKey = mp_ReadOptionalAttrText(nodeControlPanel, "inputConfigKey", "Context.PersonValue")
+        style.PanelButtonCaption = mp_ReadOptionalAttrText(nodeControlPanel, "buttonCaption", "Search")
+        style.PanelButtonMacro = mp_ReadOptionalAttrText(nodeControlPanel, "buttonMacro", "ex_UIActions.m_OutputPanelStartSearch")
+
+        If Not mp_ReadOptionalAttrLong(nodeControlPanel, "minStartColumn", style.PanelMinStartColumn, 8, "controlPanel@minStartColumn") Then Exit Function
+        If Not mp_ReadOptionalAttrLong(nodeControlPanel, "offsetColumns", style.PanelOffsetColumns, 2, "controlPanel@offsetColumns") Then Exit Function
+        If Not mp_ReadOptionalAttrLong(nodeControlPanel, "widthColumns", style.PanelWidthColumns, 6, "controlPanel@widthColumns") Then Exit Function
+        If Not mp_ReadOptionalAttrLong(nodeControlPanel, "heightRows", style.PanelHeightRows, 3, "controlPanel@heightRows") Then Exit Function
+        If Not mp_ReadOptionalAttrLong(nodeControlPanel, "topRow", style.PanelTopRow, 1, "controlPanel@topRow") Then Exit Function
+
+        If style.PanelMinStartColumn < 1 Then
+            MsgBox "Invalid value for output sheet style attribute 'controlPanel@minStartColumn': must be >= 1.", vbExclamation
+            Exit Function
+        End If
+        If style.PanelOffsetColumns < 1 Then
+            MsgBox "Invalid value for output sheet style attribute 'controlPanel@offsetColumns': must be >= 1.", vbExclamation
+            Exit Function
+        End If
+        If style.PanelWidthColumns < 4 Then
+            MsgBox "Invalid value for output sheet style attribute 'controlPanel@widthColumns': must be >= 4.", vbExclamation
+            Exit Function
+        End If
+        If style.PanelHeightRows < 3 Then
+            MsgBox "Invalid value for output sheet style attribute 'controlPanel@heightRows': must be >= 3.", vbExclamation
+            Exit Function
+        End If
+        If style.PanelTopRow < 1 Then
+            MsgBox "Invalid value for output sheet style attribute 'controlPanel@topRow': must be >= 1.", vbExclamation
+            Exit Function
+        End If
+
+        If Not mp_ReadOptionalAttrHexColor(nodeControlPanel, "panelBackColor", style.PanelBackColor, RGB(30, 30, 30), "controlPanel@panelBackColor") Then Exit Function
+        If Not mp_ReadOptionalAttrHexColor(nodeControlPanel, "panelBorderColor", style.PanelBorderColor, RGB(80, 80, 80), "controlPanel@panelBorderColor") Then Exit Function
+        If Not mp_ReadOptionalAttrHexColor(nodeControlPanel, "titleColor", style.PanelTitleColor, RGB(215, 167, 99), "controlPanel@titleColor") Then Exit Function
+        If Not mp_ReadOptionalAttrHexColor(nodeControlPanel, "labelColor", style.PanelLabelColor, style.ContentColor, "controlPanel@labelColor") Then Exit Function
+        If Not mp_ReadOptionalAttrHexColor(nodeControlPanel, "inputBackColor", style.PanelInputBackColor, RGB(38, 38, 38), "controlPanel@inputBackColor") Then Exit Function
+        If Not mp_ReadOptionalAttrHexColor(nodeControlPanel, "inputFontColor", style.PanelInputFontColor, style.ContentColor, "controlPanel@inputFontColor") Then Exit Function
+        If Not mp_ReadOptionalAttrHexColor(nodeControlPanel, "buttonBackColor", style.PanelButtonBackColor, RGB(31, 94, 156), "controlPanel@buttonBackColor") Then Exit Function
+        If Not mp_ReadOptionalAttrHexColor(nodeControlPanel, "buttonTextColor", style.PanelButtonTextColor, RGB(255, 255, 255), "controlPanel@buttonTextColor") Then Exit Function
+        If Not mp_ReadOptionalAttrHexColor(nodeControlPanel, "buttonBorderColor", style.PanelButtonBorderColor, RGB(22, 63, 105), "controlPanel@buttonBorderColor") Then Exit Function
+    End If
+
     mp_TryLoadOutputSheetStyleFromDom = True
+End Function
+
+Private Function mp_ReadOptionalAttrText(ByVal node As Object, ByVal attrName As String, ByVal defaultValue As String) As String
+    mp_ReadOptionalAttrText = Trim$(ex_XmlCore.m_NodeAttrText(node, attrName))
+    If Len(mp_ReadOptionalAttrText) = 0 Then
+        mp_ReadOptionalAttrText = defaultValue
+    End If
+End Function
+
+Private Function mp_ReadOptionalAttrLong(ByVal node As Object, ByVal attrName As String, ByRef outValue As Long, ByVal defaultValue As Long, ByVal fieldName As String) As Boolean
+    Dim textValue As String
+
+    textValue = Trim$(ex_XmlCore.m_NodeAttrText(node, attrName))
+    If Len(textValue) = 0 Then
+        outValue = defaultValue
+        mp_ReadOptionalAttrLong = True
+        Exit Function
+    End If
+
+    If Not ex_XmlCore.m_TryParseLong(textValue, outValue) Then
+        MsgBox "Invalid integer output sheet style attribute '" & fieldName & "': " & textValue, vbExclamation
+        Exit Function
+    End If
+
+    mp_ReadOptionalAttrLong = True
+End Function
+
+Private Function mp_ReadOptionalAttrHexColor(ByVal node As Object, ByVal attrName As String, ByRef outValue As Long, ByVal defaultValue As Long, ByVal fieldName As String) As Boolean
+    Dim textValue As String
+
+    textValue = Trim$(ex_XmlCore.m_NodeAttrText(node, attrName))
+    If Len(textValue) = 0 Then
+        outValue = defaultValue
+        mp_ReadOptionalAttrHexColor = True
+        Exit Function
+    End If
+
+    If Not ex_XmlCore.m_TryParseHexColor(textValue, outValue) Then
+        MsgBox "Invalid color output sheet style attribute '" & fieldName & "': expected #RRGGBB, got " & textValue, vbExclamation
+        Exit Function
+    End If
+
+    mp_ReadOptionalAttrHexColor = True
 End Function
 
 Private Function mp_ReadRequiredAttrHorizontalAlignment(ByVal node As Object, ByVal attrName As String, ByRef outValue As Long) As Boolean
@@ -467,15 +590,16 @@ Private Sub mp_AddLayer( _
     priorities(itemCount) = layerPriority
 End Sub
 
-Private Function mp_FindColumnIndex(ByVal ws As Worksheet, ByVal colCount As Long, ByVal headerName As String) As Long
+Private Function mp_FindColumnIndexInRow(ByVal ws As Worksheet, ByVal headerRow As Long, ByVal colCount As Long, ByVal headerName As String) As Long
     Dim c As Long
 
     If ws Is Nothing Then Exit Function
+    If headerRow <= 0 Then Exit Function
     If colCount <= 0 Then Exit Function
 
     For c = 1 To colCount
-        If StrComp(CStr(ws.Cells(1, c).Value), headerName, vbTextCompare) = 0 Then
-            mp_FindColumnIndex = c
+        If StrComp(CStr(ws.Cells(headerRow, c).Value), headerName, vbTextCompare) = 0 Then
+            mp_FindColumnIndexInRow = c
             Exit Function
         End If
     Next c

@@ -57,7 +57,7 @@ Public Sub m_ShowPersonTimeline(ByVal fio As String)
     Dim outputStyle As t_OutputSheetStyle
     Dim baseStyle As t_BaseSheetStyle
     Dim hasOutputStyle As Boolean
-    If Not ex_SheetStylesXmlProvider.m_EnsureInitialized(ThisWorkbook) Then
+    If Not ex_SheetStylesXmlProvider.m_InitializeStyles(ThisWorkbook) Then
         Err.Raise vbObjectError + 1304, "ex_PersonTimeline", "Failed to initialize style registry."
     End If
     hasOutputStyle = ex_SheetStylesXmlProvider.m_GetOutputSheetStyle(outputStyle, ThisWorkbook)
@@ -74,6 +74,9 @@ Public Sub m_ShowPersonTimeline(ByVal fio As String)
 
     Dim rowIndex As Long
     rowIndex = 1
+    If hasOutputStyle Then
+        rowIndex = rowIndex + outputStyle.OutputTopOffsetRows
+    End If
 
     Dim headerRows As Collection
     Set headerRows = New Collection
@@ -148,6 +151,9 @@ ContinueAlias:
     End If
 
     mp_ApplyTimelineStyleLayers wsOut, headerRows, sectionRows, outputStyle, baseStyle, hasOutputStyle
+    If hasOutputStyle Then
+        ex_OutputPanel.m_RenderForSheet wsOut, outputStyle
+    End If
 
     mp_CloseWorkbooks wbCache
 
