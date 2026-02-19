@@ -81,6 +81,7 @@ Public Type t_OutputSheetStyle
     PanelValueColumns As Long
     PanelFieldRowSpan As Long
     PanelFieldSpacingRows As Long
+    PanelViewZoneGapRows As Long
     PanelColumnWidth As Double
     PanelTitle As String
     PanelBackColor As Long
@@ -144,17 +145,23 @@ End Function
 
 Public Function m_GetOutputViewStartRow(Optional ByVal wb As Workbook) As Long
     Dim style As t_OutputSheetStyle
+    Dim panelBottomRow As Long
 
     If Not m_GetOutputSheetStyle(style, wb) Then
         m_GetOutputViewStartRow = 1
         Exit Function
     End If
 
-    If style.ViewStartRow > 0 Then
+    panelBottomRow = mp_GetControlPanelBottomRow(style)
+    If panelBottomRow > 0 Then
+        ' Keep a configurable visual gap between control panel and data view.
+        m_GetOutputViewStartRow = panelBottomRow + 1 + style.PanelViewZoneGapRows
+    ElseIf style.ViewStartRow > 0 Then
         m_GetOutputViewStartRow = style.ViewStartRow
     Else
         m_GetOutputViewStartRow = 1 + style.OutputTopOffsetRows
     End If
+
     If m_GetOutputViewStartRow < 1 Then m_GetOutputViewStartRow = 1
 End Function
 
@@ -524,6 +531,7 @@ Private Function mp_TryLoadOutputSheetStyleFromDom(ByVal doc As Object, ByRef st
         If Not mp_ReadOptionalAttrLong(nodeControlPanel, "valueColumns", style.PanelValueColumns, 2, "controlPanel@valueColumns") Then Exit Function
         If Not mp_ReadOptionalAttrLong(nodeControlPanel, "fieldRowSpan", style.PanelFieldRowSpan, 2, "controlPanel@fieldRowSpan") Then Exit Function
         If Not mp_ReadOptionalAttrLong(nodeControlPanel, "fieldSpacingRows", style.PanelFieldSpacingRows, 0, "controlPanel@fieldSpacingRows") Then Exit Function
+        If Not mp_ReadOptionalAttrLong(nodeControlPanel, "viewZoneGapRows", style.PanelViewZoneGapRows, 2, "controlPanel@viewZoneGapRows") Then Exit Function
         If Not mp_ReadOptionalAttrDouble(nodeControlPanel, "panelColumnWidth", style.PanelColumnWidth, 12#, "controlPanel@panelColumnWidth") Then Exit Function
 
         If style.PanelStartColumn < 0 Then
@@ -564,6 +572,10 @@ Private Function mp_TryLoadOutputSheetStyleFromDom(ByVal doc As Object, ByRef st
         End If
         If style.PanelFieldSpacingRows < 0 Then
             MsgBox "Invalid value for output sheet style attribute 'controlPanel@fieldSpacingRows': must be >= 0.", vbExclamation
+            Exit Function
+        End If
+        If style.PanelViewZoneGapRows < 0 Then
+            MsgBox "Invalid value for output sheet style attribute 'controlPanel@viewZoneGapRows': must be >= 0.", vbExclamation
             Exit Function
         End If
         If style.PanelColumnWidth <= 0 Then
@@ -804,4 +816,22 @@ Private Function mp_ColumnLetter(ByVal colIndex As Long) As String
         mp_ColumnLetter = Chr$(65 + part) & mp_ColumnLetter
         n = (n - 1) \ 26
     Loop
+End Function
+
+Private Function mp_GetControlPanelBottomRow(ByRef style As t_OutputSheetStyle) As Long
+    Dim fieldsTopRow As Long
+    Dim rowSpan As Long
+    Dim spacingRows As Long
+
+    If Not style.HasControlPanel Then Exit Function
+    If style.PanelFieldCount <= 0 Then Exit Function
+
+    rowSpan = style.PanelFieldRowSpan
+    If rowSpan < 1 Then rowSpan = 2
+
+    spacingRows = style.PanelFieldSpacingRows
+    If spacingRows < 0 Then spacingRows = 0
+
+    fieldsTopRow = style.PanelTopRow + 1
+    mp_GetControlPanelBottomRow = fieldsTopRow + (style.PanelFieldCount * rowSpan) + ((style.PanelFieldCount - 1) * spacingRows) - 1
 End Function

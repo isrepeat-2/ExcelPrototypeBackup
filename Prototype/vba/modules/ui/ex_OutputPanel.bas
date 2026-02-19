@@ -12,7 +12,6 @@ Public Sub m_RenderForSheet(ByVal ws As Worksheet, ByRef style As ex_SheetStyles
     Dim rightCol As Long
     Dim bottomRow As Long
     Dim dataLastCol As Long
-    Dim panelRange As Range
     Dim titleRange As Range
     Dim labelRange As Range
     Dim inputRange As Range
@@ -27,6 +26,7 @@ Public Sub m_RenderForSheet(ByVal ws As Worksheet, ByRef style As ex_SheetStyles
     Dim buttonLeft As Double
     Dim buttonTop As Double
     Dim buttonAreaRight As Double
+    Dim buttonAreaWidth As Double
     Dim titleEndCol As Long
     Dim currentValue As String
     Dim maxButtonCount As Long
@@ -38,7 +38,6 @@ Public Sub m_RenderForSheet(ByVal ws As Worksheet, ByRef style As ex_SheetStyles
     Dim fieldTopRow As Long
     Dim fieldBottomRow As Long
     Dim buttonIndex As Long
-    Dim c As Long
 
     If ws Is Nothing Then Exit Sub
     If Not style.HasControlPanel Then Exit Sub
@@ -70,20 +69,6 @@ Public Sub m_RenderForSheet(ByVal ws As Worksheet, ByRef style As ex_SheetStyles
     fieldsTopRow = topRow + 1
     bottomRow = fieldsTopRow + (style.PanelFieldCount * rowSpan) + ((style.PanelFieldCount - 1) * fieldSpacing) - 1
 
-    For c = startCol To rightCol
-        ws.Columns(c).ColumnWidth = style.PanelColumnWidth
-    Next c
-
-    Set panelRange = ws.Range(ws.Cells(topRow, startCol), ws.Cells(bottomRow, rightCol))
-    panelRange.Interior.Pattern = xlSolid
-    panelRange.Interior.Color = style.PanelBackColor
-    panelRange.Font.Color = style.PanelLabelColor
-    panelRange.Font.Name = style.FontName
-    panelRange.Font.Size = style.FontSize
-    panelRange.Borders.LineStyle = xlContinuous
-    panelRange.Borders.Color = style.PanelBorderColor
-    panelRange.Borders.Weight = xlThin
-
     inputStartCol = startCol + style.PanelLabelColumns
     inputEndCol = inputStartCol + style.PanelValueColumns - 1
     If inputEndCol < inputStartCol Then inputEndCol = inputStartCol
@@ -91,6 +76,8 @@ Public Sub m_RenderForSheet(ByVal ws As Worksheet, ByRef style As ex_SheetStyles
     If titleEndCol < startCol Then titleEndCol = startCol
     buttonStartCol = inputEndCol + 1
     If buttonStartCol > rightCol Then buttonStartCol = rightCol
+
+    ws.Columns(startCol).Resize(, style.PanelLabelColumns + style.PanelValueColumns).ColumnWidth = style.PanelColumnWidth
 
     Set titleRange = ws.Range(ws.Cells(topRow, startCol), ws.Cells(topRow, titleEndCol))
     titleRange.UnMerge
@@ -138,9 +125,14 @@ Public Sub m_RenderForSheet(ByVal ws As Worksheet, ByRef style As ex_SheetStyles
 
         buttonTop = ws.Cells(fieldTopRow, buttonStartCol).Top + 1
         buttonLeft = ws.Cells(fieldTopRow, buttonStartCol).Left + 1
-        buttonWidth = ws.Cells(fieldTopRow, buttonStartCol).Width - PANEL_BUTTON_GAP_PTS - 2
-        buttonHeight = ws.Range(ws.Cells(fieldTopRow, buttonStartCol), ws.Cells(fieldBottomRow, buttonStartCol)).Height - 2
         buttonAreaRight = ws.Cells(fieldTopRow, rightCol).Left + ws.Cells(fieldTopRow, rightCol).Width - 1
+        buttonAreaWidth = buttonAreaRight - buttonLeft
+        If maxButtonCount > 0 Then
+            buttonWidth = (buttonAreaWidth - (PANEL_BUTTON_GAP_PTS * (maxButtonCount - 1))) / maxButtonCount
+        Else
+            buttonWidth = ws.Cells(fieldTopRow, buttonStartCol).Width - 2
+        End If
+        buttonHeight = ws.Range(ws.Cells(fieldTopRow, buttonStartCol), ws.Cells(fieldBottomRow, buttonStartCol)).Height - 2
         If buttonWidth < 8 Then buttonWidth = 8
         If buttonHeight < 8 Then buttonHeight = 8
 
